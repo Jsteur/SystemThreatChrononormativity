@@ -1,0 +1,371 @@
+---
+title: "Chrononormativity CCES 2020 Analysis"
+author: "James Steur & Aleks Ksiazkiewicz"
+date: "04/13/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Load Packages & Data, echo=FALSE, include=FALSE, results=FALSE}
+#Load in Packages & Data
+library(readr)
+library('devtools')
+library('mirt')
+#install_github('philchalmers/mirt')
+library(dplyr)
+packageVersion("dplyr")
+library("ltm")
+library('mvtnorm')
+library(haven)
+library(haven)
+CCES20 <- read_sav("CCES20.sav")
+library('stargazer')
+data <- CCES20
+library('ggpubr')
+library(dplyr)
+library(car)
+library(Hmisc)
+```
+
+
+```{r Descriptive Statistics, echo=FALSE, include=FALSE, results=FALSE}
+data$age <- (2020 - data$birthyr)
+age <- (2020 - data$birthyr)
+#Ages
+table(age <= 24) #95. 18 to 24. 
+table(age <= 34 & age > 24) #193. 25 to 34
+table(age <= 44 & age > 34) #151. 35 to 44. 
+table(age <= 54 & age > 44) #132. 45 to 54.
+table(age <= 64 & age > 54) #218. 55 to 64.
+table(age <= 74 & age > 64) #151. 65 to 74.
+table(age >= 75) #60. 75 or older.
+summary(age)
+
+#Gender
+data$gender
+
+#Race
+data$race #Mostly white. 731. 
+
+#Ideology
+table(data$ideo5) # Five point scale. 6 = Not sure. #1 NA. 
+table(data$CC20_340a) # Seven point scale. 8 = Not sure. #1 NA.
+
+#Party
+data$pid3 # 1 = Democrat. 2 = Republican. 3 = Independent. 4 = Other. 5 = Not sure. 
+data$pid7 #8 = Not sure.
+
+#Income
+data$faminc_new #97 prefer not to say. 
+
+#Education
+data$educ
+
+#Post variables. 
+#birthyr_post
+#gender_post
+```
+```{r Ideology & Party Recode, echo=FALSE, results = FALSE}
+#Ideology
+ideology <- subset(data,select=c(CC20_340a))
+table(ideology)
+ideology <- replace(ideology, ideology == 8, NA)
+table(ideology)
+data$ideology <- as.numeric(unlist(ideology))
+table(data$ideology)
+#Party
+party <- subset(data, select = c(pid7))
+party[party == 8] <- NA
+data$party <- party
+table(party)
+```
+
+
+```{r Chronotype, echo=FALSE, results = FALSE}
+#Address outliers.
+#UIL302= Wake. UIL303 = Sleep. UIL304= Sleep Delay.
+sleep <- subset(data, select = c(UIL302:UIL304))
+sleep$UIL302 <- sleep$UIL302 + 20
+sleep$UIL304 <- sleep$UIL304/30
+sleep$GenDuration <- (sleep$UIL302 - sleep$UIL303)
+
+sleep$GenDuration <- with(sleep, 
+  ifelse(GenDuration >= 48, GenDuration - 48, 
+  ifelse(GenDuration < 0, GenDuration + 48,
+  GenDuration)))
+
+sleep$GenDuration[sleep$GenDuration == 0] <- NA
+
+sleep$UIL304 <- with(sleep,
+  ifelse(GenDuration - UIL304 <= 0, NA, UIL304))
+
+#Exclude Outliers on sleep/wake times. 
+#UIL 303. Before 7PM = 1 or 2. After 6AM = 25 to 48.
+sleep$UIL303 <- with(sleep,
+  ifelse(UIL303 <= 2, NA, 
+  ifelse(UIL303 >= 25, NA, 
+  UIL303)))
+
+#UIL 302. Before 4AM = 21 or less. After 3PM = 43 to 48.
+sleep$UIL302 <- with(sleep,
+  ifelse(UIL302 <= 21, NA,
+  ifelse(UIL302 >= 43, NA,
+  UIL302)))
+
+#Remove sleeping fewer than 2 hours or more than 18 hours.
+sleep$GenDuration <- with(sleep,
+  ifelse(GenDuration <= 4, NA,
+  ifelse(GenDuration >= 36, NA,
+  GenDuration)))
+
+#Midpoint of free night sleep.
+sleep$GenMfs <- sleep$UIL302 - (sleep$GenDuration*0.5)
+
+sleep$GenMfs <- (ifelse(sleep$GenMfs > 48, sleep$GenMfs - 48, sleep$GenMfs))
+
+sleep$delay <- sleep$UIL302 - (sleep$GenDuration - sleep$UIL304)/2 
+sleep$delay <- ifelse(sleep$delay > 48, sleep$delay-48, sleep$delay)
+
+#Below 13 = Before Midnight. After 13 = After Midnight. Diving by two to get hourly unit. 
+sleep$GenMfs <- (sleep$GenMfs - 13)/2
+sleep$delay <- (sleep$delay - 13)/2
+
+#Use delay for analysis.
+data$chronotype_delay <- sleep$delay
+
+#3.5 is the median amount of midpoint sleep. 
+#3.5 or below = Morning. 1.
+#Higher than 3.5 = Evening. 2. 
+
+sleep$bi_type <- with(sleep,
+  ifelse(delay <= 3.5, 1, 
+  ifelse(delay > 3.5, 2,
+         delay)))
+
+data$bi_type <- sleep$bi_type
+```
+
+
+```{r Recode More Variables, echo=FALSE, results = FALSE, warning=FALSE}
+#System Threat Condition 
+#data$UIL301_treat #Pre-Election. 1 = Control. 2 = System Threat. 3 = System Affirming.
+
+#Reverse Score Recoding & Summing
+
+#Chrononomativity: UIL310-326.#8 = skipped item. 
+norm_sum <- subset(data,
+  select=c(UIL310:UIL326))
+
+norm_sum[norm_sum==2] <- 0
+table(data$norm_sum)
+
+
+data$normativity_sum <- norm_sum$UIL310+norm_sum$UIL311+norm_sum$UIL312+norm_sum$UIL313+norm_sum$UIL314+norm_sum$UIL315+norm_sum$UIL316+norm_sum$UIL317+norm_sum$UIL318+norm_sum$UIL319+norm_sum$UIL320+norm_sum$UIL321+norm_sum$UIL322+norm_sum$UIL323+norm_sum$UIL324+norm_sum$UIL325+norm_sum$UIL326 
+
+#Conventionalism: UIL327-332.
+covent_sum <- subset(data,
+  select = c(UIL328, UIL329, UIL332))
+
+#Reverse Score Items UIL327, UIL330, and UIL331
+convent_sum1 <- subset(data,
+  select=c(UIL327, UIL330, UIL331))
+convent_sum1 <- as.data.frame((convent_sum1==1) * 5 + (convent_sum1 ==2) * 4 + (convent_sum1 ==3) * 3 + (convent_sum1 ==4) * 2 + (convent_sum1 ==5) * 1) #Reverse Score Items
+
+data$conventionalism_sum <- convent_sum1$UIL327 + convent_sum1$UIL330 + convent_sum1$UIL331 + covent_sum$UIL328 + covent_sum$UIL329 + covent_sum$UIL332
+
+
+#System Justification: UIL404-411.
+system <- subset(data,
+  select = c(UIL404, UIL405, UIL407, UIL408, UIL409, UIL411))
+#Reverse Score Items UIL406 and UIL410.
+system1 <- subset(data,
+  select = c(UIL406, UIL410))
+system1 <- as.data.frame((system1==1) * 5 + (system1 ==2) * 4 + (system1 ==3) * 3 + (system1 ==4) * 2 + (system1 ==5) * 1)
+
+data$system_sum <- system1$UIL406 + system1$UIL410 + system$UIL404 + system$UIL405 + system$UIL407 + system$UIL408 + system$UIL409 + system$UIL411
+```
+# Pearson Correlations
+
+Summary: The only relationships that don't have a significant relationship are Chrononormativity with Ideolodgy, Chronotype, & Conventionalism. The strongest correlations are between System Justification & Ideology (0.54), Conventionalism & Ideolodgy (0.52), and System Justification & Conventionalism (0.48).   
+```{r Correlations, echo=FALSE}
+correlations1 <- subset(data, select=c(normativity_sum, system_sum, ideology, chronotype_delay, conventionalism_sum))
+names(correlations1)[names(correlations1) == "normativity_sum"] <- "Normativity"
+names(correlations1)[names(correlations1) == "system_sum"] <- "System"
+names(correlations1)[names(correlations1) == "ideology"] <- "Ideology"
+names(correlations1)[names(correlations1) == "chronotype_delay"] <- "Type"
+names(correlations1)[names(correlations1) == "conventionalism_sum"] <- "Conventionalism"
+cor1 <- rcorr(as.matrix(correlations1))
+cor1
+```
+\newpage
+
+# Biviariate Regression Tables
+
+System Justification relationship with Chrononormativity is significant. 
+```{r, echo=FALSE}
+#Create Biviariate Table Regression. Include Controls. 
+correlations <- subset(data, select=c(normativity_sum, system_sum, ideology, chronotype_delay, conventionalism_sum, age, race, faminc_new, gender, educ, party))
+names(correlations)[names(correlations) == "normativity_sum"] <- "Normativity"
+names(correlations)[names(correlations) == "system_sum"] <- "System"
+names(correlations)[names(correlations) == "ideology"] <- "Ideology"
+names(correlations)[names(correlations) == "chronotype_delay"] <- "Type"
+names(correlations)[names(correlations) == "conventionalism_sum"] <- "Conventionalism"
+names(correlations)[names(correlations) == "faminc_new"] <- "income"
+names(correlations)[names(correlations) == "educ"] <- "education"
+correlations$party <- unlist(party)
+
+mod1 <- lm(correlations$Conventionalism ~ correlations$Normativity)
+mod2 <- lm(correlations$Conventionalism ~ correlations$Normativity+correlations$Ideology)
+mod3 <- lm(correlations$Conventionalism ~ correlations$Normativity+correlations$Ideology+correlations$System)
+mod4 <- lm(correlations$Conventionalism ~ correlations$Normativity+correlations$Ideology+correlations$System+correlations$Type)
+mod17 <- lm(correlations$Conventionalism ~ correlations$Normativity+correlations$age+correlations$race+correlations$income+correlations$gender+correlations$education+correlations$party)
+
+mod5 <- lm(correlations$Ideology ~ correlations$Normativity)
+mod6 <- lm(correlations$Ideology ~ correlations$Normativity+correlations$System)
+mod7 <- lm(correlations$Ideology ~ correlations$Normativity+correlations$System+correlations$Type)
+mod8 <- lm(correlations$Ideology ~ correlations$Normativity+correlations$System+correlations$Type+correlations$Conventionalism)
+mod18 <- lm(correlations$Ideology ~ correlations$Normativity+correlations$age+correlations$race+correlations$income+correlations$gender+correlations$education+correlations$party)
+
+mod9 <- lm(correlations$System ~ correlations$Normativity)
+mod10 <- lm(correlations$System ~ correlations$Normativity+correlations$Ideology)
+mod11 <- lm(correlations$System ~ correlations$Normativity+correlations$Ideology+correlations$Conventionalism)
+mod12 <- lm(correlations$System ~ correlations$Normativity+correlations$Ideology+correlations$Conventionalism+correlations$Type)
+mod19 <- lm(correlations$System ~ correlations$Normativity+correlations$age+correlations$race+correlations$income+correlations$gender+correlations$education+correlations$party)
+
+mod13 <- lm(correlations$Type ~ correlations$Normativity)
+mod14 <- lm(correlations$Type ~ correlations$Normativity+correlations$Ideology)
+mod15 <- lm(correlations$Type ~ correlations$Normativity+correlations$Ideology+correlations$Conventionalism)
+mod16 <- lm(correlations$Type ~ correlations$Normativity+correlations$Ideology+correlations$Conventionalism+correlations$System)
+mod20 <- lm(correlations$Type ~ correlations$Normativity+correlations$age+correlations$race+correlations$income+correlations$gender+correlations$education+correlations$party)
+
+```
+
+```{r results = 'asis', echo = FALSE}
+stargazer1 <- stargazer(mod1,mod2,mod3,mod4,
+     title = "Major Variables Conventionalism", type = 'latex', single.row = TRUE, omit.stat=c("f"), header = FALSE)
+
+stargazer(mod1, mod17,
+     title = "Controls Conventionalism", type = 'latex', single.row = TRUE, omit.stat=c("f"), header = FALSE)
+
+stargazer2 <- stargazer(mod5,mod6,mod7,mod8,
+     title = "Major Variables Ideology", type = 'latex', single.row = TRUE, omit.stat=c("f"), header = FALSE)
+
+stargazer(mod5, mod18,
+     title = "Controls Ideology", type = 'latex', single.row = TRUE, omit.stat=c("f"), header = FALSE)
+
+stargazer3 <- stargazer(mod9,mod10,mod11,mod12,
+     title = "Major Variables System Justification", type = 'latex', single.row = TRUE, omit.stat=c("f"), header = FALSE)
+
+stargazer(mod9, mod19,
+     title = "Controls System Justification", type = 'latex', single.row = TRUE, omit.stat=c("f"), header = FALSE)
+
+stargazer4 <- stargazer(mod13,mod14,mod15,mod16,
+     title = "Major Variables Chronotype", type = 'latex', single.row = TRUE, omit.stat=c("f"), header = FALSE)
+
+stargazer(mod13, mod20,
+     title = "Controls Chronotype", type = 'latex', single.row = TRUE, omit.stat=c("f"), header = FALSE)
+```
+\newpage
+
+# IRT Models
+
+```{r, echo=FALSE}
+#IRT. Include Substantive Discussion of All This Shit. 
+
+#2PL Binary IRT. #Norm_sum is the subset of the chrononormativity items. 
+BinModel1 <- ltm(norm_sum ~ z1, IRT.param = T) #2PL model. 
+#summary(BinModel1) #Difficulty, Discrimination, & EFA
+#coef(BinModel1, IRTpars = T) #Coefficients
+coef(BinModel1) #Nicely Formatted Difficulty & Discrimination
+```
+The difficulty (b) measure determines the underlying trait of Chrononormativity. The easiest way to think of these numbers are as z-scores. The set of items are roughly one standard deviation away from the mean underlying trait of Chrononormativity. 
+
+The discrimination (a) measure determines how accurate the item is at assessing how far above and below people the difficulty parameter. Cutoffs between 1 to 4 are usually good here. Items are discriminating well. 
+
+
+```{r, echo=FALSE}
+#plot(BinModel1, type = "trace") ##Curves for all items at once.
+#plot(BinModel1, type = "info") ##Test Curve Information
+plot(BinModel1) ##Expected Score Curve
+#fscores(BinModel1) ##Factor Scores
+
+#itemfit(BinModel1, na.rm = T) ##Item Fit Stats. Removed NA's. 
+#Want non-significant scores. Items with significant scores. 
+# 7, 8, 16 (barely), 20, 23, 28, 30, 31, 37
+
+#personfit(BinModel1, na.rm = T)
+```
+The Item Characteristics Curve represents the information in the table above graphically. The y-axis is the probability of a response representing the underlying trait of Chrononormativity. For example, suppose we have a 0.50 score on the y-axis that intersects with a line on the x-axis at 1. This would indicate that the item is capturing an average of one standard deviation for those who are less Chrononormative. The average score on ability is roughly one standard deviation away for all items.  
+
+```{r, echo=FALSE}
+#plot(BinModel1, type = "ICC") #All items at once
+#plot(BinModel1, type = "ICC", items = 3)
+plot(BinModel1, type = "IIC", items = 0) #Test Information Function
+```
+
+The Test Information Function graph takes all the items and determines the probability along each point for the underlying trait of Chrononormativity. This curve tells us where the most "information" is present. We are getting the most information at roughly one standard deviation away from the mean. We're getting a lot of information about people who tend to score lower on Chrononormativity measures (do whatever you want whenever you want), so this set of items may not tell us the most about people who score higher on Chrononormativity measures (there are strict times of day you should do things.)
+
+```{r, echo=FALSE}
+#Factor_Scores <- factor.scores(BinModel1) 
+#print(Factor_Scores)
+#See Frequency of How Often People Select
+
+#person.fit(BinModel1)
+#item.fit(BinModel1)
+```
+
+
+
+# Treatments & Control: Chrononormativity Mean Differences
+
+Summary of this section: it looks like there isn't a statistically significant relationship based on the box-plot and table showing the means of the observations. It looks like one possible explanation is that a high number of participants are fine with people doing a lot of stuff whenever they want based on the histogram. 
+
+```{r Differeince in Means, echo=FALSE, include=FALSE, results=FALSE}
+#Two Way ANOVA
+anova <- subset(data, select=c(normativity_sum, UIL301_treat, bi_type))
+anova$Chrononormativity <- anova$normativity_sum
+anova$Chronotype <- anova$bi_type
+anova$Treatment <- anova$UIL301_treat
+
+anova$Treatment <- factor(anova$Treatment, 
+                  levels = c(1, 2, 3),
+                  labels = c("Control", "Threat", "Affirming"))
+
+anova$Chronotype <- factor(anova$Chronotype, 
+                  levels = c(1, 2),
+                  labels = c("Morning", "Evening"))
+```
+
+```{r, warning = FALSE, echo=FALSE}
+group_by(anova, Treatment, Chronotype) %>%
+  summarise(
+    count = n(),
+    mean = mean(Chrononormativity, na.rm = TRUE),
+    sd = sd(Chrononormativity, na.rm = TRUE)
+  )
+
+```
+
+
+```{r, echo=FALSE, warning = FALSE}
+ggboxplot(anova, x = "Treatment", y = "Chrononormativity", color = "Chronotype",
+          palette = c("#00AFBB", "#E7B800"))
+
+two.way <- aov(Chrononormativity ~ Treatment*Chronotype, data = anova)
+summary(two.way)
+
+
+hist(data$normativity_sum,
+     main = "Chrononormativity Responses",
+     xlim = c(0,15),
+     ylim = c(0,700),
+     xlab = "Chrononormativity", 
+     col = "blue")
+
+my_anova <- aov(Chrononormativity ~ Treatment*Chronotype, data = anova)
+#imbalance <- Anova(my_anova, type = "III")
+```
+
